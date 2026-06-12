@@ -104,12 +104,12 @@
 
 <script>
 const URLS = {
-  twseDaily: "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-  twseYield: "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
-  twseDiv:   "https://openapi.twse.com.tw/v1/opendata/t187ap45_L",
-  tpexDaily: "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
-  tpexYield: "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
-  tpexDiv:   "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost",
+  twseDaily: ["data/twse_daily.json", "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"],
+  twseYield: ["data/twse_yield.json", "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"],
+  twseDiv:   ["data/twse_div.json",   "https://openapi.twse.com.tw/v1/opendata/t187ap45_L"],
+  tpexDaily: ["data/tpex_daily.json", "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"],
+  tpexYield: ["data/tpex_yield.json", "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis"],
+  tpexDiv:   ["data/tpex_div.json",   "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost"],
 };
 const DEFAULT_LIST = ["0050", "3557", "8112"];
 window.__debug = location.search.indexOf("debug") !== -1;
@@ -130,12 +130,15 @@ const pick = (row, keys) => {
 };
 const save = () => localStorage.setItem("watchlist", JSON.stringify(codes));
 
-async function fetchJson(url) {
-  // 證交所/櫃買 API 不允許跨網站直接呼叫,依序嘗試:直連 → 兩個免費中繼服務
+async function fetchJson(source) {
+  const [local, remote] = source;
+  // 優先讀本站由 GitHub Actions 每日更新的資料檔(加時間戳避開快取),
+  // 失敗才嘗試直連與中繼服務
   const candidates = [
-    url,
-    "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
-    "https://corsproxy.io/?url=" + encodeURIComponent(url),
+    local + "?t=" + Date.now(),
+    remote,
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent(remote),
+    "https://corsproxy.io/?url=" + encodeURIComponent(remote),
   ];
   for (const u of candidates) {
     try {
