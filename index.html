@@ -24,22 +24,40 @@
     display: flex; align-items: center; padding: 8px 16px;
     font-size: 13px; color: #8a8a93; border-bottom: 1px solid #1c1c22;
   }
-  .col-head span { flex: 1; text-align: right; }
-  .col-head .first { flex: 1.2; text-align: left; }
+  #table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .col-head, .row { display: flex; align-items: center; width: max-content; min-width: 100%; }
+  .col-head {
+    padding: 8px 16px 8px 0;
+    font-size: 13px; color: #8a8a93; border-bottom: 1px solid #1c1c22;
+  }
+  .col-head span { flex: 0 0 auto; width: 96px; text-align: right; }
+  .col-head .first {
+    width: 140px; text-align: left;
+    position: sticky; left: 0; z-index: 2; background: #0b0b0e; padding-left: 16px;
+  }
   .col-head .yield { color: #d9a948; }
-  .row { display: flex; align-items: center; padding: 16px; border-bottom: 1px solid #17171c; }
-  .row .name-cell { flex: 1.2; min-width: 0; }
-  .stock-name { font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col-head .myyield { color: #6fb3f2; width: 110px; }
+  .row { padding: 16px 16px 16px 0; border-bottom: 1px solid #17171c; background: #0b0b0e; }
+  .row .name-cell {
+    flex: 0 0 auto; width: 140px; min-width: 0;
+    position: sticky; left: 0; z-index: 1; background: #0b0b0e; padding-left: 16px;
+    box-shadow: 8px 0 8px -6px rgba(0,0,0,.7);
+  }
+  .stock-name { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stock-code { font-size: 13px; color: #8a8a93; margin-top: 4px; display: flex; align-items: center; gap: 6px; }
   .tag { background: #2a4ea3; color: #dfe8ff; font-size: 11px; border-radius: 4px; padding: 1px 5px; }
   .tag.otc { background: #7a5a1e; color: #ffeccb; }
-  .cell { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
-  .px { font-size: 19px; font-weight: 700; }
+  .cell { flex: 0 0 auto; width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cell:last-of-type { width: 110px; }
+  .px { font-size: 18px; font-weight: 700; }
   .delta { font-size: 17px; font-weight: 700; }
   .delta-pct { font-size: 12px; margin-top: 2px; opacity: .85; }
   .yield-note { font-size: 11px; color: #8a8a93; margin-top: 2px; }
   .up { color: #f0334b; } .down { color: #2ebd6b; } .flat { color: #e8e8ec; }
   .gold { color: #f2c863; } .gray { color: #9a9aa3; } .dim { color: #55555e; }
+  .blue { color: #6fb3f2; }
+  .cost-cell { cursor: pointer; }
+  .cost-empty { font-size: 13px; color: #6fb3f2; border: 1px dashed #3a5a7a; border-radius: 6px; padding: 4px 8px; display: inline-block; }
   .msg { margin: 12px 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
   .msg.error { background: #2a1518; border: 1px solid #5c2a31; color: #f0a0aa; }
   .msg.info { background: #14202e; border: 1px solid #27405c; color: #9fc3ee; }
@@ -66,12 +84,14 @@
     </div>
   </div>
 
-  <div class="col-head">
-    <span class="first">商品</span><span>成交</span><span>漲跌</span><span class="yield">今年殖利率</span>
-  </div>
-
   <div id="msg"></div>
-  <div id="list"></div>
+
+  <div id="table-wrap">
+    <div class="col-head">
+      <span class="first">商品</span><span>成交</span><span class="yield">今年殖利率</span><span>均價</span><span class="myyield">我的殖利率</span>
+    </div>
+    <div id="list"></div>
+  </div>
 
   <div class="add-row hidden" id="addRow">
     <input id="codeInput" placeholder="輸入股票代號,例如 2330" inputmode="numeric">
@@ -95,6 +115,7 @@ const DEFAULT_LIST = ["0050", "3557", "8112"];
 
 let codes = JSON.parse(localStorage.getItem("watchlist") || "null") || DEFAULT_LIST;
 let quotes = JSON.parse(localStorage.getItem("quotes-cache") || "{}");
+let costs = JSON.parse(localStorage.getItem("costs") || "{}");
 let editing = false;
 
 const $ = (id) => document.getElementById(id);
@@ -218,24 +239,66 @@ function render() {
 
     const row = document.createElement("div");
     row.className = "row";
+
+    const cost = costs[c];
+    let costHtml;
+    if (cost != null) {
+      costHtml = '<div class="px">' + cost.toFixed(2) + '</div>'
+        + '<div class="yield-note">點此修改</div>';
+    } else {
+      costHtml = '<span class="cost-empty">輸入均價</span>';
+    }
+
+    let myYieldHtml;
+    if (q.cashThisYear && cost) {
+      myYieldHtml = '<div class="px blue">' + (q.cashThisYear / cost * 100).toFixed(2) + '%</div>'
+        + '<div class="yield-note">以均價計</div>';
+    } else if (cost) {
+      myYieldHtml = '<div class="px dim">—</div>'
+        + '<div class="yield-note">尚未公告</div>';
+    } else {
+      myYieldHtml = '<div class="px dim">—</div>';
+    }
+
     row.innerHTML =
       '<div class="name-cell">'
       + '<div class="stock-name">' + (q.name || "—") + '</div>'
       + '<div class="stock-code">' + tag + c + '</div>'
       + '</div>'
-      + '<div class="cell ' + cls + '"><div class="px">' + (q.close != null ? q.close.toFixed(2) : "—") + '</div></div>'
       + '<div class="cell ' + cls + '">'
-      + '<div class="delta">' + (q.change != null ? arrow + Math.abs(q.change).toFixed(2) : "—") + '</div>'
-      + '<div class="delta-pct">' + (pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "") + '</div>'
+      + '<div class="px">' + (q.close != null ? q.close.toFixed(2) : "—") + '</div>'
+      + '<div class="delta-pct">' + (q.change != null ? arrow + Math.abs(q.change).toFixed(2) : "")
+      + (pct != null ? " " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "") + '</div>'
       + '</div>'
       + '<div class="cell">' + yieldHtml + '</div>'
+      + '<div class="cell cost-cell" data-code="' + c + '">' + costHtml + '</div>'
+      + '<div class="cell">' + myYieldHtml + '</div>'
       + (editing ? '<button class="del-btn" data-code="' + c + '">✕</button>' : "");
     list.appendChild(row);
   }
   if (quotes._time) {
     $("footer").textContent = "更新於 " + new Date(quotes._time).toLocaleString("zh-TW")
-      + "。金色為今年已公告現金股利換算;灰色為近一年股利估算。資料來源:臺灣證券交易所、櫃買中心(收盤資料,非即時)。僅供參考,投資前請以公開資訊觀測站為準。";
+      + "。金色=今年已公告現金股利÷收盤價;藍色=今年現金股利÷你的買進均價(點均價欄可輸入或修改)。資料來源:臺灣證券交易所、櫃買中心(收盤資料,非即時)。僅供參考,投資前請以公開資訊觀測站為準。";
   }
+  list.querySelectorAll(".cost-cell").forEach((el) =>
+    el.addEventListener("click", () => {
+      const code = el.dataset.code;
+      const cur = costs[code] != null ? costs[code] : "";
+      const input = prompt("輸入 " + code + " 的買進均價(元):", cur);
+      if (input === null) return; // 取消
+      const v = parseFloat(String(input).replace(/,/g, "").trim());
+      if (Number.isFinite(v) && v > 0) {
+        costs[code] = v;
+      } else if (String(input).trim() === "") {
+        delete costs[code]; // 清空表示移除均價
+      } else {
+        alert("請輸入有效的數字");
+        return;
+      }
+      localStorage.setItem("costs", JSON.stringify(costs));
+      render();
+    })
+  );
   list.querySelectorAll(".del-btn").forEach((b) =>
     b.addEventListener("click", () => {
       codes = codes.filter((x) => x !== b.dataset.code);
