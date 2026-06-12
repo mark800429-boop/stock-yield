@@ -88,7 +88,7 @@
 
   <div id="table-wrap">
     <div class="col-head">
-      <span class="first">商品</span><span>成交</span><span class="yield">今年殖利率</span><span>均價</span><span class="myyield">我的殖利率</span>
+      <span class="first">商品</span><span>成交</span><span class="yield">今年殖利率</span><span>股利</span><span>均價</span><span class="myyield">我的殖利率</span>
     </div>
     <div id="list"></div>
   </div>
@@ -187,16 +187,43 @@ async function refresh() {
       if (y != null) map[code].lastYearYield = y;
     }
     const year = new Date().getFullYear();
-    for (const row of [...twDiv, ...tpDiv]) {
+    // 上市:股利分派情形(t187ap45_L)。「今年配發」= 股利年度為民國去年(去年盈餘今年配發)
+    const rocPrevYear = String(year - 1912);
+    const seen = {};
+    for (const row of twDiv) {
+      const code = String(row["公司代號"] || "").trim();
+      if (!map[code]) continue;
+      if (String(row["股利年度"] || "").trim() !== rocPrevYear) continue;
+      const cash = (num(row["股東配發-盈餘分配之現金股利(元/股)"]) || 0)
+        + (num(row["股東配發-法定盈餘公積發放之現金(元/股)"]) || 0)
+        + (num(row["股東配發-資本公積發放之現金(元/股)"]) || 0);
+      const stock = (num(row["股東配發-盈餘轉增資配股(元/股)"]) || 0)
+        + (num(row["股東配發-法定盈餘公積轉增資配股(元/股)"]) || 0)
+        + (num(row["股東配發-資本公積轉增資配股(元/股)"]) || 0);
+      // 同一期別可能先「擬議」後「決議」,以後出現者為準避免重複累計
+      const key = code + "|" + String(row["期別"] || "") + "|" + String(row["股利所屬期間"] || "");
+      seen[key] = { code, cash, stock };
+    }
+    for (const k in seen) {
+      const it = seen[k];
+      if (it.cash > 0) map[it.code].cashThisYear = (map[it.code].cashThisYear || 0) + it.cash;
+      if (it.stock > 0) map[it.code].stockThisYear = (map[it.code].stockThisYear || 0) + it.stock;
+    }
+    // 上櫃:沿用除權息預告表
+    for (const row of tpDiv) {
       const code = String(pick(row, ["Code", "公司代號", "股票代號", "SecuritiesCompanyCode"]) || "").trim();
       if (!map[code]) continue;
       const cash = num(pick(row, ["CashDividend", "現金股利", "現金股利(元/股)", "Cash"])) || 0;
+      const stock = num(pick(row, ["StockDividend", "股票股利", "盈餘配股(元/股)", "盈餘配股"])) || 0;
       const dateStr = String(pick(row, ["Date", "除權息日期", "資料日期", "ExRightExDividendDate"]) || "");
       const roc = dateStr.match(/^(\d{3})\D/);
       const adYear = roc ? parseInt(roc[1], 10) + 1911
         : (dateStr.match(/^(\d{4})/) ? parseInt(dateStr.slice(0, 4), 10) : year);
       if (adYear === year && cash > 0) {
         map[code].cashThisYear = (map[code].cashThisYear || 0) + cash;
+      }
+      if (adYear === year && stock > 0) {
+        map[code].stockThisYear = (map[code].stockThisYear || 0) + stock;
       }
     }
     quotes = {};
@@ -260,6 +287,15 @@ function render() {
       myYieldHtml = '<div class="px dim">—</div>';
     }
 
+    let divHtml;
+    if (q.cashThisYear || q.stockThisYear) {
+      divHtml = '<div class="px gold" style="font-size:14px">現 '
+        + (q.cashThisYear ? q.cashThisYear.toFixed(2) : "0.00") + '</div>'
+        + '<div class="yield-note">股 ' + (q.stockThisYear ? q.stockThisYear.toFixed(2) : "0.00") + '</div>';
+    } else {
+      divHtml = '<div class="px dim">—</div><div class="yield-note">尚未公告</div>';
+    }
+
     row.innerHTML =
       '<div class="name-cell">'
       + '<div class="stock-name">' + (q.name || "—") + '</div>'
@@ -271,6 +307,7 @@ function render() {
       + (pct != null ? " " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "") + '</div>'
       + '</div>'
       + '<div class="cell">' + yieldHtml + '</div>'
+      + '<div class="cell">' + divHtml + '</div>'
       + '<div class="cell cost-cell" data-code="' + c + '">' + costHtml + '</div>'
       + '<div class="cell">' + myYieldHtml + '</div>'
       + (editing ? '<button class="del-btn" data-code="' + c + '">✕</button>' : "");
