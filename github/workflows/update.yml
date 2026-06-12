@@ -1,0 +1,40 @@
+name: update-data
+
+on:
+  schedule:
+    # 台灣時間週一到週五 15:00 與 18:30 各抓一次 (cron 為 UTC)
+    - cron: "0 7 * * 1-5"
+    - cron: "30 10 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 抓取證交所與櫃買中心資料
+        run: |
+          mkdir -p data
+          fetch() {
+            curl -skL --retry 3 --max-time 120 "$1" -o "data/$2"
+            head -c 1 "data/$2" | grep -q '\[' || rm -f "data/$2"
+          }
+          fetch "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL" twse_daily.json
+          fetch "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL" twse_yield.json
+          fetch "https://openapi.twse.com.tw/v1/opendata/t187ap45_L" twse_div.json
+          fetch "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes" tpex_daily.json
+          fetch "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis" tpex_yield.json
+          fetch "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost" tpex_div.json
+          ls -la data
+
+      - name: 提交更新
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "自動更新股市資料"
+          git push
