@@ -73,11 +73,20 @@
   }
   .footer { padding: 16px 16px 0; font-size: 11px; color: #62626b; line-height: 1.6; }
   .hidden { display: none; }
+  .title-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  #listSelect {
+    background: transparent; color: #e8e8ec; border: none; outline: none;
+    font-size: 22px; font-weight: 700; letter-spacing: 2px; font-family: inherit;
+    -webkit-appearance: none; appearance: none; padding: 0; max-width: 58vw;
+  }
+  .caret { color: #8a8a93; font-size: 14px; }
 </style>
 </head>
 <body>
   <div class="header">
-    <div class="title">自選股</div>
+    <div class="title-row">
+      <select id="listSelect"></select><span class="caret">▾</span>
+    </div>
     <div style="display:flex;gap:8px">
       <button id="editBtn">編輯</button>
       <button id="refreshBtn">↻ 更新</button>
@@ -94,8 +103,14 @@
   </div>
 
   <div class="add-row hidden" id="addRow">
-    <input id="codeInput" placeholder="輸入股票代號,例如 2330" inputmode="numeric">
+    <input id="codeInput" placeholder="輸入或貼上多個代號,如 2330 0050 2731" inputmode="text">
     <button class="btn-primary" id="addBtn">加入</button>
+  </div>
+
+  <div class="add-row hidden" id="listMgmt">
+    <button id="newListBtn">＋新增清單</button>
+    <button id="renameListBtn">重新命名</button>
+    <button id="delListBtn" style="border-color:#5c2a31;color:#f0a0aa">刪除清單</button>
   </div>
 
   <div class="footer" id="footer">
@@ -114,7 +129,15 @@ const URLS = {
 const DEFAULT_LIST = ["0050", "3557", "8112"];
 window.__debug = location.search.indexOf("debug") !== -1;
 
-let codes = JSON.parse(localStorage.getItem("watchlist") || "null") || DEFAULT_LIST;
+// 多清單結構;第一次使用時把舊的單一清單自動搬進來
+let store = JSON.parse(localStorage.getItem("lists-v2") || "null");
+if (!store || !store.lists || !store.lists.length) {
+  const old = JSON.parse(localStorage.getItem("watchlist") || "null");
+  store = { active: 0, lists: [{ name: "自選清單1", codes: old || DEFAULT_LIST.slice() }] };
+}
+if (store.active >= store.lists.length) store.active = 0;
+const curList = () => store.lists[store.active];
+
 let quotes = JSON.parse(localStorage.getItem("quotes-cache") || "{}");
 let costs = JSON.parse(localStorage.getItem("costs") || "{}");
 let editing = false;
@@ -128,7 +151,7 @@ const pick = (row, keys) => {
   for (const k of keys) if (row[k] !== undefined && row[k] !== null && row[k] !== "") return row[k];
   return null;
 };
-const save = () => localStorage.setItem("watchlist", JSON.stringify(codes));
+const save = () => localStorage.setItem("lists-v2", JSON.stringify(store));
 
 async function fetchJson(source) {
   const [local, remote] = source;
@@ -254,7 +277,9 @@ async function refresh() {
       }
     }
     quotes = {};
-    for (const c of codes) if (map[c]) quotes[c] = map[c];
+    for (const l of store.lists) {
+      for (const c of l.codes) if (map[c]) quotes[c] = map[c];
+    }
     quotes._time = new Date().toISOString();
     localStorage.setItem("quotes-cache", JSON.stringify(quotes));
     render();
@@ -270,7 +295,7 @@ async function refresh() {
 function render() {
   const list = $("list");
   list.innerHTML = "";
-  for (const c of codes) {
+  for (const c of curList().codes) {
     const q = quotes[c] || {};
     const up = (q.change ?? 0) > 0, down = (q.change ?? 0) < 0;
     const cls = up ? "up" : down ? "down" : "flat";
@@ -365,30 +390,79 @@ function render() {
   );
   list.querySelectorAll(".del-btn").forEach((b) =>
     b.addEventListener("click", () => {
-      codes = codes.filter((x) => x !== b.dataset.code);
+      curList().codes = curList().codes.filter((x) => x !== b.dataset.code);
       save(); render();
     })
   );
 }
 
+function renderListSelect() {
+  const sel = $("listSelect");
+  sel.innerHTML = "";
+  store.lists.forEach((l, i) => {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = l.name;
+    if (i === store.active) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+$("listSelect").addEventListener("change", (e) => {
+  store.active = parseInt(e.target.value, 10) || 0;
+  save(); render();
+});
+
+$("newListBtn").addEventListener("click", () => {
+  const def = "自選清單" + (store.lists.length + 1);
+  const name = prompt("新清單名稱:", def);
+  if (name === null) return;
+  store.lists.push({ name: (name.trim() || def), codes: [] });
+  store.active = store.lists.length - 1;
+  save(); renderListSelect(); render();
+});
+
+$("renameListBtn").addEventListener("click", () => {
+  const name = prompt("清單名稱:", curList().name);
+  if (name === null || !name.trim()) return;
+  curList().name = name.trim();
+  save(); renderListSelect();
+});
+
+$("delListBtn").addEventListener("click", () => {
+  if (store.lists.length <= 1) { alert("至少要保留一個清單"); return; }
+  if (!confirm("確定刪除「" + curList().name + "」?清單裡的股票也會一併移除")) return;
+  store.lists.splice(store.active, 1);
+  store.active = 0;
+  save(); renderListSelect(); render();
+});
+
 $("editBtn").addEventListener("click", () => {
   editing = !editing;
   $("editBtn").textContent = editing ? "完成" : "編輯";
   $("addRow").classList.toggle("hidden", !editing);
+  $("listMgmt").classList.toggle("hidden", !editing);
   render();
 });
 $("addBtn").addEventListener("click", addCode);
 $("codeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addCode(); });
 function addCode() {
-  const c = $("codeInput").value.trim();
-  if (!c) return;
-  if (!codes.includes(c)) { codes.push(c); save(); }
+  const raw = $("codeInput").value.trim();
+  if (!raw) return;
+  // 批次匯入:從貼上的文字中挑出所有 4~6 位數的股票代號(可含結尾字母,如 00878B)
+  const found = raw.match(/\d{4,6}[A-Z]?/g) || [];
+  let added = 0;
+  for (const c of found) {
+    if (!curList().codes.includes(c)) { curList().codes.push(c); added++; }
+  }
+  if (added > 0) save();
   $("codeInput").value = "";
   render();
-  refresh();
+  if (added > 0) refresh();
 }
 $("refreshBtn").addEventListener("click", refresh);
 
+renderListSelect();
 render();
 refresh();
 </script>
