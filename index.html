@@ -112,6 +112,7 @@ const URLS = {
   tpexDiv:   "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost",
 };
 const DEFAULT_LIST = ["0050", "3557", "8112"];
+window.__debug = location.search.indexOf("debug") !== -1;
 
 let codes = JSON.parse(localStorage.getItem("watchlist") || "null") || DEFAULT_LIST;
 let quotes = JSON.parse(localStorage.getItem("quotes-cache") || "{}");
@@ -187,27 +188,50 @@ async function refresh() {
       if (y != null) map[code].lastYearYield = y;
     }
     const year = new Date().getFullYear();
-    // 上市:股利分派情形(t187ap45_L)。「今年配發」= 股利年度為民國去年(去年盈餘今年配發)
-    const rocPrevYear = String(year - 1912);
+    // 上市:股利分派情形(t187ap45_L)
+    // 「今年配發」= 股利年度為去年(去年盈餘今年配發),同時接受民國/西元格式
+    const okYears = [String(year - 1912), String(year - 1911), String(year - 1), String(year)];
+    const debugRows = [];
     const seen = {};
     for (const row of twDiv) {
-      const code = String(row["公司代號"] || "").trim();
+      const code = String(row["公司代號"] || row["Code"] || "").trim();
       if (!map[code]) continue;
-      if (String(row["股利年度"] || "").trim() !== rocPrevYear) continue;
-      const cash = (num(row["股東配發-盈餘分配之現金股利(元/股)"]) || 0)
-        + (num(row["股東配發-法定盈餘公積發放之現金(元/股)"]) || 0)
-        + (num(row["股東配發-資本公積發放之現金(元/股)"]) || 0);
-      const stock = (num(row["股東配發-盈餘轉增資配股(元/股)"]) || 0)
-        + (num(row["股東配發-法定盈餘公積轉增資配股(元/股)"]) || 0)
-        + (num(row["股東配發-資本公積轉增資配股(元/股)"]) || 0);
+      if (window.__debug) debugRows.push(row);
+      // 年度欄位:找名稱含「股利年度」的欄位;找不到就不過濾
+      let yearOk = true;
+      for (const k in row) {
+        if (k.indexOf("股利年度") !== -1) {
+          const v = String(row[k] || "").replace(/[^0-9]/g, "");
+          yearOk = okYears.indexOf(v) !== -1;
+          break;
+        }
+      }
+      if (!yearOk) continue;
+      // 模糊掃描:欄位名含「現金股利」或「發放之現金」=現金;含「轉增資配股」或「股票股利」=股票
+      // 排除「總金額」(那是全公司總額,不是每股)
+      let cash = 0, stock = 0;
+      for (const k in row) {
+        if (k.indexOf("總金額") !== -1 || k.indexOf("總股數") !== -1) continue;
+        const v = num(row[k]);
+        if (v == null || v <= 0) continue;
+        if (k.indexOf("現金股利") !== -1 || k.indexOf("發放之現金") !== -1) cash += v;
+        else if (k.indexOf("轉增資配股") !== -1 || k.indexOf("股票股利") !== -1) stock += v;
+      }
       // 同一期別可能先「擬議」後「決議」,以後出現者為準避免重複累計
-      const key = code + "|" + String(row["期別"] || "") + "|" + String(row["股利所屬期間"] || "");
+      const key = code + "|" + String(row["期別"] || "") + "|" + String(row["股利所屬期間"] || row["股利所屬年(季)度"] || "");
       seen[key] = { code, cash, stock };
     }
     for (const k in seen) {
       const it = seen[k];
       if (it.cash > 0) map[it.code].cashThisYear = (map[it.code].cashThisYear || 0) + it.cash;
       if (it.stock > 0) map[it.code].stockThisYear = (map[it.code].stockThisYear || 0) + it.stock;
+    }
+    if (window.__debug) {
+      const dbg = document.createElement("pre");
+      dbg.style.cssText = "color:#9fc3ee;font-size:10px;white-space:pre-wrap;word-break:break-all;padding:12px 16px;border-top:1px solid #27405c;";
+      dbg.textContent = "【診斷】股利原始資料 " + debugRows.length + " 筆:\n"
+        + JSON.stringify(debugRows, null, 1).slice(0, 8000);
+      document.body.appendChild(dbg);
     }
     // 上櫃:沿用除權息預告表
     for (const row of tpDiv) {
