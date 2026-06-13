@@ -153,10 +153,35 @@ const pick = (row, keys) => {
 };
 const save = () => localStorage.setItem("lists-v2", JSON.stringify(store));
 
+// 把 CSV 文字轉成物件陣列(第一行為欄位名)
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return rows;
+  const splitLine = (line) => {
+    const out = []; let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === "," && !inQ) { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim());
+  };
+  const headers = splitLine(lines[0]);
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitLine(lines[i]);
+    if (cells.length < 2) continue;
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = cells[idx]; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
 async function fetchJson(source) {
   const [local, remote] = source;
-  // 優先讀本站由 GitHub Actions 每日更新的資料檔(加時間戳避開快取),
-  // 失敗才嘗試直連與中繼服務
   const candidates = [
     local + "?t=" + Date.now(),
     remote,
@@ -165,10 +190,18 @@ async function fetchJson(source) {
   ];
   for (const u of candidates) {
     try {
-      const r = await fetch(u, { headers: { Accept: "application/json" } });
+      const r = await fetch(u, { headers: { Accept: "application/json, text/csv, */*" } });
       if (!r.ok) throw new Error("HTTP " + r.status);
-      const data = await r.json();
-      if (Array.isArray(data)) return data;
+      const text = (await r.text()).trim();
+      if (!text) continue;
+      // 自動判斷:'[' 開頭視為 JSON,否則當 CSV
+      if (text[0] === "[") {
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) return data;
+      } else if (text.indexOf(",") !== -1) {
+        const data = parseCSV(text);
+        if (data.length) return data;
+      }
     } catch (e) {
       console.warn("抓取失敗,換下一個來源", u, e);
     }
