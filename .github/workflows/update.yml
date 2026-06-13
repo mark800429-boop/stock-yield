@@ -21,15 +21,24 @@ jobs:
         run: |
           mkdir -p data
           grab() {
-            curl -skL --retry 3 --max-time 120 "$1" -o "data/$2" || echo "fail: $2"
-            if [ -f "data/$2" ]; then
-              head -c 1 "data/$2" | grep -q '\[' || rm -f "data/$2"
-            fi
+            url="$1"; out="$2"
+            for i in 1 2 3 4 5; do
+              curl -skL --max-time 120 \
+                -H "User-Agent: Mozilla/5.0" \
+                "$url" -o "data/$out"
+              if [ -s "data/$out" ] && head -c 1 "data/$out" | grep -q '\['; then
+                echo "ok: $out"
+                return 0
+              fi
+              echo "retry $i: $out"
+              sleep 10
+            done
+            echo "fail: $out (keep old file)"
             return 0
           }
-          grab "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL" twse_daily.json
-          grab "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL" twse_yield.json
-          grab "https://openapi.twse.com.tw/v1/opendata/t187ap45_L" twse_div.json
+          grab "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=open_data" twse_daily.json
+          grab "https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?response=open_data" twse_yield.json
+          grab "https://www.twse.com.tw/rwd/zh/dividend/TWT49U?response=open_data" twse_div.json
           grab "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes" tpex_daily.json
           grab "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis" tpex_yield.json
           grab "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost" tpex_div.json
